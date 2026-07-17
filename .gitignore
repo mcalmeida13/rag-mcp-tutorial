@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# OS / editor junk
+.DS_Store
+.vscode/
+
+# Secrets
+*.env
+!.env.example
+
+# TODO: once the ingestion pipeline exists (after Prompt A), add the local
+# vector index / embedding store output paths here (e.g. chroma db files,
+# faiss indexes) so they don't get committed.
