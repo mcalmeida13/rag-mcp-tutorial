@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1: Embeddings &amp; Chunking</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<div class="lesson-nav">
+  <span>RAG &amp; MCP — Lesson 1 of the ingestion arc</span>
+  <span><a href="../reference/rag-pipeline-cheatsheet.html">Cheat sheet →</a></span>
+</div>
+
+<h1>Embeddings &amp; Chunking</h1>
+<p class="subtitle">Why your ingestion script turns documents into 384-number lists before it can search anything</p>
+
+<p>You already ran <code>rag/ingest.py</code> and watched it print: <em>8 documents processed, 41 chunks created, embedding dimension 384.</em> This lesson is about understanding <em>why</em> that pipeline is shaped the way it is — so the next steps (retrieval, then an MCP server) build on solid footing instead of memorized incantations. That maps directly to the first item in your <a href="../MISSION.md">mission</a>: being able to explain, from memory, how embeddings + chunking + a vector index turn documents into a searchable knowledge base.</p>
+
+<h2>Why retrieval, at all?</h2>
+<p>A language model's knowledge is frozen at training time and lives entirely in its parameters. Ask it about your internal docs, or anything that happened after training, and it either says "I don't know" or — worse — confidently makes something up. Retrieval-Augmented Generation (RAG) fixes this by pairing the model with an external, searchable store of documents: <em>look things up, then answer</em>, rather than <em>answer from memory alone</em>.</p>
+<p>This isn't a new trick — it's the subject of a specific, foundational paper: Lewis et al.'s <a href="https://proceedings.neurips.cc/paper_files/paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf">"Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"</a> (NeurIPS 2020), which named the technique and showed that combining a retriever with a generator measurably improves factual accuracy. If the full paper is heavy going, the <a href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">Wikipedia overview</a> is a faster on-ramp covering the same shape of idea.</p>
+
+<div class="callout">
+  <p class="callout-title">Recommended primary source</p>
+  <p>Read at least the abstract and introduction of the <a href="https://proceedings.neurips.cc/paper_files/paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf">Lewis et al. 2020 paper</a>. Everything downstream — every vendor blog, every framework's "RAG" feature — is implementing some variation of what this paper proposed.</p>
+</div>
+
+<h2>Embeddings: turning text into geometry</h2>
+<p>To "look things up" by meaning rather than exact keywords, you need a way to compare two pieces of text for similarity. An <strong>embedding</strong> is a model's answer to that: a vector of numbers positioned in space such that texts with similar meaning end up close together, and unrelated texts end up far apart.</p>
+<p>In <code>rag/ingest.py</code>, this line does the work:</p>
+<pre><code>chunk_embeddings = model.encode(chunk_texts)</code></pre>
+<p>The model is <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"><code>all-MiniLM-L6-v2</code></a> — small and fast (about 5&times; faster than larger sentence-transformer models) but still trained on over a billion sentence pairs to place similar sentences near each other. It maps any input to a 384-dimensional vector, which is exactly the number your ingestion summary printed. That's not a coincidence — <code>embedding dimension</code> in your output <em>is</em> the length of these vectors. See the <a href="https://www.sbert.net/docs/quickstart.html">Sentence Transformers quickstart docs</a> for the library's full API.</p>
+<p>Once two chunks are both vectors, comparing them becomes ordinary geometry — <strong>cosine similarity</strong> (the angle between two vectors) is the standard measure, and it's what next lesson's retrieval step will use. You're not implementing that yet — just note that embeddings exist specifically to make this kind of comparison possible.</p>
+
+<h2>Chunking: why not embed the whole document</h2>
+<p>Every document in <code>docs/</code> gets split into overlapping 50-word pieces before embedding. Two independent reasons force this:</p>
+<ul>
+  <li><strong>Context window limits.</strong> Embedding models and LLMs can only process a bounded amount of text at once.</li>
+  <li><strong>Search granularity.</strong> Even where context isn't the limiter, a vector for an entire multi-paragraph document blends many different facts into one point in space. A query about one specific fact in that document won't match well, because the vector is an average of everything the document talks about. Small, focused chunks embed to more specific, more matchable vectors.</li>
+</ul>
+<p>This is exactly the comment sitting above the sliding-window loop in <code>chunk_text()</code>. The 10-word overlap between consecutive chunks exists so a sentence that happens to fall on a chunk boundary still appears whole in at least one chunk, instead of being severed in both.</p>
+<p>Naive fixed-size chunking like this is a reasonable starting point, but it's not the end of the story — Anthropic's <a href="https://www.anthropic.com/engineering/contextual-retrieval">"Contextual Retrieval"</a> engineering post shows how much retrieval quality is left on the table when chunks lose their surrounding context (up to 67% more retrieval failures in their tests). Worth returning to once basic chunking feels solid.</p>
+
+<h2>What you already built</h2>
+<p>Put together, your ingestion run did exactly this:</p>
+<pre><code>docs/*.md  →  chunk_text()  →  41 chunks  →  model.encode()  →  (41, 384) array
+                                                              ↓
+                                   rag/index/chunks.json + rag/index/embeddings.npy</code></pre>
+<p><code>chunks.json</code> and <code>embeddings.npy</code> together <em>are</em> the vector index: row <code>i</code> of the embeddings array corresponds to record <code>i</code> in the JSON file. No database, no hidden magic — which is exactly why this project chose plain files for this step.</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-question">
+  <p class="prompt">What is an embedding, most precisely?</p>
+  <ul class="quiz-options">
+    <li><button class="quiz-option" data-correct="true">A vector encoding of meaning</button></li>
+    <li><button class="quiz-option" data-correct="false">A summary written by hand</button></li>
+    <li><button class="quiz-option" data-correct="false">A copy stored as text</button></li>
+    <li><button class="quiz-option" data-correct="false">A rule matching exact words</button></li>
+  </ul>
+  <p class="quiz-feedback" aria-live="polite"></p>
+</div>
+
+<div class="quiz-question">
+  <p class="prompt">Why split documents into chunks before embedding them?</p>
+  <ul class="quiz-options">
+    <li><button class="quiz-option" data-correct="true">Whole-document vectors blur distinct facts together</button></li>
+    <li><button class="quiz-option" data-correct="false">Smaller files upload faster to servers</button></li>
+    <li><button class="quiz-option" data-correct="false">Chunks are required by every library</button></li>
+    <li><button class="quiz-option" data-correct="false">Splitting text prevents any spelling errors</button></li>
+  </ul>
+  <p class="quiz-feedback" aria-live="polite"></p>
+</div>
+
+<div class="quiz-question">
+  <p class="prompt">What does the embedding dimension (384) actually tell you?</p>
+  <ul class="quiz-options">
+    <li><button class="quiz-option" data-correct="true">size of each meaning vector</button></li>
+    <li><button class="quiz-option" data-correct="false">count of documents you indexed</button></li>
+    <li><button class="quiz-option" data-correct="false">number of chunks you created</button></li>
+    <li><button class="quiz-option" data-correct="false">speed of the search query</button></li>
+  </ul>
+  <p class="quiz-feedback" aria-live="polite"></p>
+</div>
+
+<h2>Practice: predict before you check</h2>
+<p>Say a new document has 220 words. Using this project's settings (chunk size 50, overlap 10, so step = 40 words), how many chunks will <code>chunk_text()</code> produce, and how long is the last one?</p>
+<details class="practice">
+  <summary>Work it out, then reveal the answer</summary>
+  <p>Starting positions are <code>0, 40, 80, 120, 160, 200</code> — six windows. The first five are full 50-word chunks. The sixth starts at word 200 with only 20 words left (200–220), so it's a short, 20-word final chunk. Total: <strong>6 chunks</strong>.</p>
+  <p>Compare that to your real run: 8 documents (each a few hundred words) produced 41 chunks — about 5.1 chunks per document, which is in the same ballpark as this worked example. If your own count were wildly different, that would be a signal something about the chunking logic or the document lengths wasn't what you expected.</p>
+</details>
+
+<div class="callout">
+  <p class="callout-title">Stuck, or want to go deeper?</p>
+  <p>Ask me (your teacher) anything that didn't click — including "why" questions about design choices in <code>rag/ingest.py</code> itself. That's what I'm here for, and it's more useful than re-reading this page.</p>
+</div>
+
+<footer class="teach-footer">
+  <p>See also: <a href="../reference/rag-pipeline-cheatsheet.html">RAG ingestion pipeline cheat sheet</a> · <a href="../RESOURCES.md">full resource list</a> · <a href="../MISSION.md">mission</a></p>
+  <p>Sources cited above: <a href="https://proceedings.neurips.cc/paper_files/paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf">Lewis et al. 2020</a> · <a href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">Wikipedia: RAG</a> · <a href="https://www.sbert.net/docs/quickstart.html">Sentence Transformers docs</a> · <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2 model card</a> · <a href="https://www.anthropic.com/engineering/contextual-retrieval">Anthropic: Contextual Retrieval</a></p>
+</footer>
+
+</body>
+</html>

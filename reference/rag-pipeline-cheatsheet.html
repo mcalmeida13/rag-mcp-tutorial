@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheat Sheet: RAG Ingestion Pipeline</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<h1>RAG Ingestion Pipeline</h1>
+<p class="subtitle">Quick reference — companion to <a href="../lessons/0001-embeddings-and-chunking.html">Lesson 1: Embeddings &amp; Chunking</a></p>
+
+<div class="pipeline">
+  <div class="step">Documents<br><small>docs/*.md</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step">Chunking<br><small>chunk_text()</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step">Embedding<br><small>all-MiniLM-L6-v2</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step">Vector index<br><small>chunks.json + embeddings.npy</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step future">Retrieval<br><small>next step</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step future">Generation<br><small>next step</small></div>
+</div>
+
+<h2>Definitions</h2>
+<div class="cheatsheet-grid">
+  <div class="cheatsheet-card">
+    <h3>Embedding</h3>
+    <p>A numeric vector representing a piece of text, positioned so that semantically similar text has a similar vector. Produced here by <code>all-MiniLM-L6-v2</code>, dimension 384.</p>
+  </div>
+  <div class="cheatsheet-card">
+    <h3>Chunk</h3>
+    <p>A small, overlapping slice of a document (here: 50 words, 10-word overlap) — small enough to embed to a specific, searchable vector; large enough to stay coherent.</p>
+  </div>
+  <div class="cheatsheet-card">
+    <h3>Vector index</h3>
+    <p>Where chunk embeddings live alongside their source text and metadata, ready to be searched by similarity. Here: two parallel files, no database.</p>
+  </div>
+  <div class="cheatsheet-card">
+    <h3>Cosine similarity</h3>
+    <p>The standard way to compare two embedding vectors: the cosine of the angle between them. 1 = identical direction (very similar meaning), 0 = unrelated. Used in the retrieval step (next lesson).</p>
+  </div>
+</div>
+
+<h2>This project's parameters</h2>
+<pre><code>CHUNK_SIZE_WORDS    = 50
+CHUNK_OVERLAP_WORDS = 10
+EMBEDDING_MODEL     = "all-MiniLM-L6-v2"
+EMBEDDING_DIM       = 384
+</code></pre>
+
+<h2>Key functions (<code>rag/ingest.py</code>)</h2>
+<pre><code>load_documents(docs_dir)              # docs/*.md, *.txt -> list of {source_filename, text}
+chunk_text(text, size, overlap)       # sliding word window -> list[str]
+build_chunk_records(documents)        # -> [{chunk_id, source_filename, chunk_index, chunk_text}, ...]
+generate_chunk_embeddings(records, m) # SentenceTransformer.encode -> numpy array (n_chunks, 384)
+save_index(records, embeddings, dir)  # writes chunks.json + embeddings.npy, same row order
+</code></pre>
+
+<h2>Sliding-window chunk count formula</h2>
+<p>For a document of <code>N</code> words, chunk size <code>C</code>, overlap <code>O</code>, and step <code>S = C - O</code>:</p>
+<pre><code>num_chunks ≈ ceil((N - C) / S) + 1   (for N &gt; C; else 1 chunk)</code></pre>
+<p class="aside">This is the formula behind the predict-then-reveal exercise in Lesson 1 — useful for sanity-checking chunk counts before running ingestion on a new corpus.</p>
+
+<footer class="teach-footer">
+  <p>Sources: <a href="https://www.sbert.net/docs/quickstart.html">Sentence Transformers quickstart</a> · <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2 model card</a> · <a href="https://www.anthropic.com/engineering/contextual-retrieval">Anthropic: Contextual Retrieval</a></p>
+</footer>
+
+</body>
+</html>
